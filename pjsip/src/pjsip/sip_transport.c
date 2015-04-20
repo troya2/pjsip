@@ -36,8 +36,43 @@
 #include <pj/lock.h>
 #include <pj/list.h>
 
+#include <pjsip/sip_transport_callbacks.h>
 
 #define THIS_FILE    "sip_transport.c"
+
+typedef void (*ctRxTransformCallback)(char *current_pkt, unsigned int *remaining_len, void *refcon);
+typedef void (*ctTxTransformCallback)(ct_pjsip_buffer *tbuffer ,void *refcon);
+
+static ctRxTransformCallback sCtRxCallback = NULL;
+static ctTxTransformCallback sCtTxCallback = NULL;
+static void *ctTransformRefcon = NULL;
+
+void registerDataTranforms(ctRxTransformCallback rxCallback, ctTxTransformCallback txCallback, void *refcon) {
+    sCtRxCallback = rxCallback;
+    sCtTxCallback = txCallback;
+    ctTransformRefcon = refcon;
+}
+
+void unregisterDataTransforms() {
+    sCtRxCallback = NULL;
+    sCtTxCallback = NULL;
+    ctTransformRefcon = NULL;
+}
+
+void ctRxDataTransform(char *current_pkt, pj_size_t *remaining_len) {
+    if (sCtRxCallback) {
+        unsigned int remaining_length = *remaining_len;
+        sCtRxCallback(current_pkt, &remaining_length, ctTransformRefcon);
+        *remaining_len = remaining_length;
+    }
+}
+
+void ctTxDataTransform(pjsip_buffer *tbuffer) {
+    if (sCtTxCallback) {
+        sCtTxCallback((ct_pjsip_buffer *)tbuffer, ctTransformRefcon);
+    }
+}
+
 
 #if 0
 #   define TRACE_(x)	PJ_LOG(5,x)
@@ -543,6 +578,8 @@ PJ_DEF(pj_status_t) pjsip_tx_data_encode(pjsip_tx_data *tdata)
 	pj_assert(size != 0);
 	tdata->buf.cur[size] = '\0';
 	tdata->buf.cur += size;
+
+    ctTxDataTransform(&tdata->buf);
     }
 
     return PJ_SUCCESS;
@@ -1665,6 +1702,7 @@ PJ_DEF(pj_ssize_t) pjsip_tpmgr_receive_packet( pjsip_tpmgr *mgr,
 
     current_pkt = rdata->pkt_info.packet;
     remaining_len = rdata->pkt_info.len;
+	ctRxDataTransform(current_pkt, &remaining_len);
 
     tr->last_recv_len = rdata->pkt_info.len;
     pj_get_timestamp(&tr->last_recv_ts);

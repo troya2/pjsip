@@ -1,0 +1,3 @@
+*.o
+*.depend
+pjsip-apps/bin/samples/*
