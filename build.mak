@@ -163,7 +163,7 @@ PJ_VIDEO_LDFLAGS += $(SDL_LDFLAGS) $(FFMPEG_LDFLAGS) $(V4L2_LDFLAGS) \
 export APP_CC := /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/../../../Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
 export APP_CXX := /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/../../../Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
 export APP_CFLAGS := -DPJ_AUTOCONF=1\
-	-O2 -m32 -mios-simulator-version-min=5.0 -DPJ_SDK_NAME="\"iPhoneSimulator8.3.sdk\"" -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.3.sdk -DPJ_IS_BIG_ENDIAN=0 -DPJ_IS_LITTLE_ENDIAN=1\
+	-O2 -m32 -mios-simulator-version-min=5.0 -O2 -Wno-unused-label -I/Users/troy/Projects/CelltrustTrunk/Pods/OpenSSL//opensslIncludes -DPJ_SDK_NAME="\"iPhoneSimulator8.4.sdk\"" -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.4.sdk -DPJ_IS_BIG_ENDIAN=0 -DPJ_IS_LITTLE_ENDIAN=1 -Iyes/include\
 	$(PJ_VIDEO_CFLAGS) \
 	-I$(PJDIR)/pjlib/include\
 	-I$(PJDIR)/pjlib-util/include\
@@ -178,7 +178,7 @@ export APP_LDFLAGS := -L$(PJDIR)/pjlib/lib\
 	-L$(PJDIR)/pjsip/lib\
 	-L$(PJDIR)/third_party/lib\
 	$(PJ_VIDEO_LDFLAGS) \
-	-O2 -m32 -mios-simulator-version-min=5.0 -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.3.sdk -framework AudioToolbox -framework Foundation
+	-O2 -m32 -mios-simulator-version-min=5.0 -L/Users/troy/Projects/CelltrustTrunk/Pods/OpenSSL//lib -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.4.sdk -framework AudioToolbox -framework Foundation -Lyes/lib
 export APP_LDXXFLAGS := $(APP_LDFLAGS)
 
 export APP_LIB_FILES = \
@@ -257,7 +257,7 @@ export APP_LDLIBS := $(PJSUA_LIB_LDLIB) \
 	$(APP_THIRD_PARTY_LIBS)\
 	$(APP_THIRD_PARTY_EXT)\
 	$(PJLIB_LDLIB) \
-	-lm -lpthread  -framework CoreAudio -framework CoreFoundation -framework AudioToolbox -framework CFNetwork -framework UIKit -framework UIKit -framework AVFoundation -framework CoreGraphics -framework QuartzCore -framework CoreVideo -framework CoreMedia
+	-lm -lpthread  -framework CoreAudio -framework CoreFoundation -framework AudioToolbox -framework CFNetwork -framework UIKit -framework UIKit -framework AVFoundation -framework CoreGraphics -framework QuartzCore -framework CoreVideo -framework CoreMedia -lcrypto -lssl
 export APP_LDXXLIBS := $(PJSUA2_LIB_LDLIB) \
 	-lstdc++ \
 	$(APP_LDLIBS)
@@ -280,6 +280,6 @@ export PJ_LIBXX_FILES := $(APP_LIBXX_FILES)
 export PJ_INSTALL_DIR := /usr/local
 export PJ_INSTALL_INC_DIR := ${prefix}/include
 export PJ_INSTALL_LIB_DIR := ${exec_prefix}/lib
-export PJ_INSTALL_CFLAGS := -I$(PJ_INSTALL_INC_DIR) -DPJ_AUTOCONF=1	-O2 -m32 -mios-simulator-version-min=5.0 -DPJ_SDK_NAME="\"iPhoneSimulator8.3.sdk\"" -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.3.sdk -DPJ_IS_BIG_ENDIAN=0 -DPJ_IS_LITTLE_ENDIAN=1
+export PJ_INSTALL_CFLAGS := -I$(PJ_INSTALL_INC_DIR) -DPJ_AUTOCONF=1	-O2 -m32 -mios-simulator-version-min=5.0 -O2 -Wno-unused-label -I/Users/troy/Projects/CelltrustTrunk/Pods/OpenSSL//opensslIncludes -DPJ_SDK_NAME="\"iPhoneSimulator8.4.sdk\"" -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator8.4.sdk -DPJ_IS_BIG_ENDIAN=0 -DPJ_IS_LITTLE_ENDIAN=1 -Iyes/include
 export PJ_INSTALL_CXXFLAGS := $(PJ_INSTALL_CFLAGS)
 export PJ_INSTALL_LDFLAGS := -L$(PJ_INSTALL_LIB_DIR) $(APP_LDLIBS)
