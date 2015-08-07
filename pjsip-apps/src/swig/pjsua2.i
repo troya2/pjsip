@@ -101,8 +101,26 @@ using namespace pj;
 %template(AudioDevInfoVector)		std::vector<pj::AudioDevInfo*>;
 %template(CodecInfoVector)		std::vector<pj::CodecInfo*>;
 
+/* pj::WindowHandle::setWindow() receives Surface object */
+#if defined(SWIGJAVA) && defined(__ANDROID__)
+%{
+#if defined(PJMEDIA_HAS_VIDEO) && PJMEDIA_HAS_VIDEO!=0
+#  include <android/native_window_jni.h>
+#else
+#  define ANativeWindow_fromSurface(a,b) NULL
+#endif
+%}
+%ignore pj::WindowHandle::display;
+%ignore pj::WindowHandle::window;
+%typemap(in) jobject surface {
+    $1 = ($input? (jobject)ANativeWindow_fromSurface(jenv, $input): NULL);
+}
+%extend pj::WindowHandle {
+    void setWindow(jobject surface) { $self->window = surface; }
+}
+#endif
+
 %include "pjsua2/media.hpp"
-%include "pjsua2/endpoint.hpp"
 %include "pjsua2/presence.hpp"
 %include "pjsua2/account.hpp"
 %include "pjsua2/call.hpp"
@@ -112,3 +130,24 @@ using namespace pj;
 %ignore pj::JsonDocument::allocElement;
 %ignore pj::JsonDocument::getPool;
 %include "pjsua2/json.hpp"
+
+// Try force Java GC before destroying the lib:
+// - to avoid late destroy of PJ objects by GC
+// - to avoid destruction of PJ objects from a non-registered GC thread
+#ifdef SWIGJAVA
+%rename(libDestroy_) pj::Endpoint::libDestroy;
+%typemap(javacode) pj::Endpoint %{
+  public void libDestroy(long prmFlags) throws java.lang.Exception {
+	Runtime.getRuntime().gc();
+	libDestroy_(prmFlags);
+  }
+
+  public void libDestroy() throws java.lang.Exception {
+	Runtime.getRuntime().gc();
+	libDestroy_();
+  }
+%}
+#endif
+
+%include "pjsua2/endpoint.hpp"
+

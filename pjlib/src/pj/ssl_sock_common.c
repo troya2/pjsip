@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: ssl_sock_common.c 4860 2014-06-19 05:07:12Z riza $ */
 /* 
  * Copyright (C) 2009-2011 Teluu Inc. (http://www.teluu.com)
  *

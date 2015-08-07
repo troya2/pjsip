@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: vid_stream.c 4816 2014-04-14 08:14:11Z bennylp $ */
 /* 
  * Copyright (C) 2011 Teluu Inc. (http://www.teluu.com)
  *

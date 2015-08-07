@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: pjsua_app_common.c 4848 2014-05-22 04:52:53Z ming $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>

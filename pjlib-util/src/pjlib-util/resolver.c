@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: resolver.c 4649 2013-11-07 08:20:30Z nanang $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>

@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: stream.h 4739 2014-02-11 04:46:49Z riza $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>

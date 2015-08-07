@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: call.cpp 4996 2015-03-18 08:25:24Z ming $ */
 /*
  * Copyright (C) 2012-2013 Teluu Inc. (http://www.teluu.com)
  *
@@ -224,6 +224,7 @@ pjsua_call_setting CallSetting::toPj() const
 
 
 CallMediaInfo::CallMediaInfo()
+: videoWindow(PJSUA_INVALID_ID)
 {
 }
 
@@ -237,6 +238,7 @@ void CallMediaInfo::fromPj(const pjsua_call_media_info &prm)
         this->audioConfSlot         = (int)prm.stream.aud.conf_slot;
     } else if (this->type == PJMEDIA_TYPE_VIDEO) {
         this->videoIncomingWindowId = prm.stream.vid.win_in;
+        this->videoWindow           = VideoWindow(prm.stream.vid.win_in);
         this->videoCapDev           = prm.stream.vid.cap_dev;
     }
 }
@@ -379,16 +381,17 @@ Call::Call(Account& account, int call_id)
 
 Call::~Call()
 {
-    /**
+    /* Remove reference to this instance from PJSUA library */
+    if (id != PJSUA_INVALID_ID)
+	pjsua_call_set_user_data(id, NULL);
+
+    /*
      * If this instance is deleted, also hangup the corresponding call in
      * PJSUA library.
      */
-    if (id != PJSUA_INVALID_ID && pjsua_get_state() < PJSUA_STATE_CLOSING) {
-	pjsua_call_set_user_data(id, NULL);
-        if (isActive()) {
-            CallOpParam prm;
-            hangup(prm);
-        }
+    if (pjsua_get_state() < PJSUA_STATE_CLOSING && isActive()) {
+        CallOpParam prm;
+        hangup(prm);
     }
 }
 

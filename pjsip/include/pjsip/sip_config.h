@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: sip_config.h 4924 2014-09-17 12:11:45Z riza $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
@@ -144,6 +144,18 @@ typedef struct pjsip_cfg_t
 	 * Default is PJSIP_RESOLVE_HOSTNAME_TO_GET_INTERFACE.
 	 */
 	pj_bool_t resolve_hostname_to_get_interface;
+
+	/**
+	 * Disable security check on incoming messages in a secure dialog.
+	 * A secure dialog is created when the request that creates the dialog
+	 * uses "sips" scheme in its request URI. Contact URI should use "sips"
+	 * scheme and the top-most Record-Route URI, if any, should use either
+	 * "sips" scheme or "transport=tls" param. See also
+	 * https://trac.pjsip.org/repos/ticket/1735.
+	 *
+	 * Default is PJ_FALSE.
+	 */
+	pj_bool_t disable_secure_dlg_check;
 
     } endpt;
 
@@ -1196,6 +1208,18 @@ PJ_INLINE(pjsip_cfg_t*) pjsip_cfg(void)
 #   define PJSIP_HAS_TX_DATA_LIST		0
 #endif
 
+/** 
+ * Specify whether to accept INVITE/re-INVITE with unknown content type,
+ * by default the stack will reject this type of message as specified in 
+ * RFC3261 section 8.2.3.
+ * Application that wishes to process the body could set this to PJ_TRUE,
+ * be informed that SDP offer/answer will still be present.
+ *
+ * Default: PJ_FALSE
+ */
+#ifndef PJSIP_INV_ACCEPT_UNKNOWN_BODY
+#   define PJSIP_INV_ACCEPT_UNKNOWN_BODY    PJ_FALSE
+#endif
 
 PJ_END_DECL
 

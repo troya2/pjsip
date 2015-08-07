@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: config.h 5062 2015-04-13 02:45:03Z ming $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
@@ -674,12 +674,18 @@
 #else
     /* When FD_SETSIZE is not changeable, check if PJ_IOQUEUE_MAX_HANDLES
      * is lower than FD_SETSIZE value.
+     *
+     * Update: Not all ioqueue backends require this (such as epoll), so
+     * this check will be done on the ioqueue implementation itself, such as
+     * ioqueue select.
      */
+/*
 #   ifdef FD_SETSIZE
 #	if PJ_IOQUEUE_MAX_HANDLES > FD_SETSIZE
 #	    error "PJ_IOQUEUE_MAX_HANDLES is greater than FD_SETSIZE"
 #	endif
 #   endif
+*/
 #endif
 
 
@@ -1188,16 +1194,16 @@ PJ_BEGIN_DECL
 #define PJ_VERSION_NUM_MAJOR	2
 
 /** PJLIB version minor number. */
-#define PJ_VERSION_NUM_MINOR	2
+#define PJ_VERSION_NUM_MINOR	4
 
 /** PJLIB version revision number. */
-#define PJ_VERSION_NUM_REV	1
+#define PJ_VERSION_NUM_REV	0
 
 /**
  * Extra suffix for the version (e.g. "-trunk"), or empty for
  * web release version.
  */
-#define PJ_VERSION_NUM_EXTRA	"-svn"
+#define PJ_VERSION_NUM_EXTRA	""
 
 /**
  * PJLIB version number consists of three bytes with the following format:

@@ -4,6 +4,7 @@
 # Valid values are:
 #   - mac_os
 #   - iphone_os
+#   - android_os
 AC_PJMEDIA_VIDEO = iphone_os
 
 # SDL flags
@@ -23,13 +24,27 @@ AC_PJMEDIA_VIDEO_HAS_QT =
 QT_CFLAGS = 
 
 # iOS
-IOS_CFLAGS = -DPJMEDIA_VIDEO_DEV_HAS_IOS=1
+IOS_CFLAGS = -DPJMEDIA_VIDEO_DEV_HAS_IOS=1 -DPJMEDIA_VIDEO_DEV_HAS_IOS_OPENGL=1
+
+# Android
+ANDROID_CFLAGS = 
+
+# libyuv
+LIBYUV_CFLAGS = 
+LIBYUV_LDFLAGS = 
+
+# openh264
+OPENH264_CFLAGS = 
+OPENH264_LDFLAGS = 
+
 
 # PJMEDIA features exclusion
 export CFLAGS +=    \
 		 $(SDL_CFLAGS) $(FFMPEG_CFLAGS) $(V4L2_CFLAGS) $(QT_CFLAGS) \
-		 $(IOS_CFLAGS)
-export LDFLAGS += $(SDL_LDFLAGS) $(FFMPEG_LDFLAGS) $(V4L2_LDFLAGS)
+		 $(IOS_CFLAGS) $(ANDROID_CFLAGS) $(LIBYUV_CFLAGS) \
+		 $(OPENH264_CFLAGS)
+export LDFLAGS += $(SDL_LDFLAGS) $(FFMPEG_LDFLAGS) $(V4L2_LDFLAGS) \
+		  $(LIBYUV_LDFLAGS) $(OPENH264_LDFLAGS)
 
 # Define the desired sound device backend
 # Valid values are:
@@ -215,6 +230,13 @@ endif
 #
 ifeq ($(AC_PJMEDIA_VIDEO),iphone_os)
 export PJMEDIA_VIDEODEV_OBJS += ios_dev.o ios_opengl_dev.o
+endif
+
+#
+# Android video device
+#
+ifeq ($(AC_PJMEDIA_VIDEO),android_os)
+export PJMEDIA_VIDEODEV_OBJS += android_dev.o android_opengl.o
 endif
 
 #

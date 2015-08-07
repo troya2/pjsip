@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: sip_inv.c 5035 2015-03-27 06:17:27Z nanang $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
@@ -115,6 +115,9 @@ static pj_status_t handle_timer_response(pjsip_inv_session *inv,
 				         const pjsip_rx_data *rdata,
 				         pj_bool_t end_sess_on_failure);
 
+static pj_bool_t inv_check_secure_dlg(pjsip_inv_session *inv,
+				      pjsip_event *e);
+
 static void (*inv_state_handler[])( pjsip_inv_session *inv, pjsip_event *e) = 
 {
     &inv_on_state_null,
@@ -159,6 +162,7 @@ struct tsx_inv_data
     pj_bool_t		 retrying;  /* Resend (e.g. due to 401/407)         */
     pj_str_t		 done_tag;  /* To tag in RX response with answer    */
     pj_bool_t		 done_early;/* Negotiation was done for early med?  */
+    pj_bool_t		 has_sdp;   /* Message with SDP?		    */
 };
 
 /*
@@ -710,6 +714,40 @@ static void mod_inv_on_tsx_state(pjsip_transaction *tsx, pjsip_event *e)
     }
 }
 
+/* 
+ * Check if tx_data has sdp. 
+ */
+static pj_bool_t tx_data_has_sdp(const pjsip_tx_data *tdata)
+{
+    pjsip_msg_body *body = tdata->msg->body;
+    pjsip_media_type app_sdp;
+
+    PJ_ASSERT_RETURN(tdata, PJ_FALSE);
+
+    pjsip_media_type_init2(&app_sdp, "application", "sdp");
+
+    if (body &&
+	pj_stricmp(&body->content_type.type, &app_sdp.type)==0 && 
+	pj_stricmp(&body->content_type.subtype, &app_sdp.subtype)==0) 
+    {
+	return PJ_TRUE;
+
+    } else if (body && 
+	       pj_stricmp2(&body->content_type.type, "multipart") && 
+	       (pj_stricmp2(&body->content_type.subtype, "mixed")==0 ||
+	        pj_stricmp2(&body->content_type.subtype, "alternative")==0))    
+    {
+	pjsip_multipart_part *part;
+
+	part = pjsip_multipart_find_part(body, &app_sdp, NULL);
+	if (part) {
+	    return PJ_TRUE;
+	}
+    }
+
+    return PJ_FALSE;
+}
+
 
 /*
  * Initialize the invite module.
@@ -990,6 +1028,49 @@ PJ_DEF(pj_status_t) pjsip_inv_verify_request3(pjsip_rx_data *rdata,
 	code = PJSIP_SC_BAD_REQUEST;
 	status = PJSIP_ERRNO_FROM_SIP_STATUS(code);
 	goto on_return;
+    }
+
+    /* Ticket #1735: Check Contact/Record-Route header in a secure dialog. */
+    if (pjsip_cfg()->endpt.disable_secure_dlg_check == PJ_FALSE &&
+	msg && PJSIP_URI_SCHEME_IS_SIPS(msg->line.req.uri))
+    {
+	/* Check Contact header */
+	if (!PJSIP_URI_SCHEME_IS_SIPS(c_hdr->uri))
+	    status = PJSIP_ESESSIONINSECURE;
+
+	/* Check top Record-Route header */
+	if (status == PJ_SUCCESS) {
+	    pjsip_rr_hdr *r = (pjsip_rr_hdr*)
+			      pjsip_msg_find_hdr(msg, PJSIP_H_RECORD_ROUTE,
+						 NULL);
+	    if (r && !PJSIP_URI_SCHEME_IS_SIPS(&r->name_addr)) {
+		/* Not "sips", check if it is "sip" and has param
+		 * "transport=tls".
+		 */
+		if (PJSIP_URI_SCHEME_IS_SIP(&r->name_addr)) {
+		    pjsip_sip_uri *sip_uri = (pjsip_sip_uri*)
+				     pjsip_uri_get_uri(r->name_addr.uri);
+		    if (pj_stricmp2(&sip_uri->transport_param, "tls")!=0)
+			status = PJSIP_ESESSIONINSECURE;
+		} else {
+		    /* Not "sips" nor "sip", treat it as insecure? */
+		    status = PJSIP_ESESSIONINSECURE;
+		}
+	    }
+	}
+
+	if (status != PJ_SUCCESS) {
+	    pjsip_warning_hdr *w;
+	    pj_str_t warn_text = pj_str("SIPS Required");
+	    w = pjsip_warning_hdr_create(tmp_pool, 381,
+					 pjsip_endpt_name(endpt),
+					 &warn_text);
+	    if (w) {
+		pj_list_push_back(&res_hdr_list, w);
+	    }
+	    code = PJSIP_SC_TEMPORARILY_UNAVAILABLE;
+	    goto on_return;
+	}
     }
 
     /* Check the request body, see if it's something that we support,
@@ -1449,6 +1530,7 @@ PJ_DEF(pj_status_t) pjsip_inv_create_uas( pjsip_dialog *dlg,
     /* Attach our data to the transaction. */
     tsx_inv_data = PJ_POOL_ZALLOC_T(inv->invite_tsx->pool, struct tsx_inv_data);
     tsx_inv_data->inv = inv;
+    tsx_inv_data->has_sdp = (sdp_info->sdp!=NULL);
     inv->invite_tsx->mod_data[mod_inv.mod.id] = tsx_inv_data;
 
     /* Create 100rel handler */
@@ -1497,7 +1579,10 @@ PJ_DEF(pj_status_t) pjsip_inv_terminate( pjsip_inv_session *inv,
 
     /* Forcefully terminate the session if state is not DISCONNECTED */
     if (inv->state != PJSIP_INV_STATE_DISCONNECTED) {
-	inv_set_state(inv, PJSIP_INV_STATE_DISCONNECTED, NULL);
+	pjsip_event usr_event;
+
+	PJSIP_EVENT_INIT_USER(usr_event, NULL, NULL, NULL, NULL);
+	inv_set_state(inv, PJSIP_INV_STATE_DISCONNECTED, &usr_event);
     }
 
     /* Done.
@@ -1805,8 +1890,12 @@ static pj_status_t inv_check_sdp_in_incoming_msg( pjsip_inv_session *inv,
     if (tsx_inv_data == NULL) {
 	tsx_inv_data = PJ_POOL_ZALLOC_T(tsx->pool, struct tsx_inv_data);
 	tsx_inv_data->inv = inv;
+	tsx_inv_data->has_sdp = (sdp_info->sdp!=NULL);
 	tsx->mod_data[mod_inv.mod.id] = tsx_inv_data;
     }
+
+    /* Initialize info that we are following forked media */
+    inv->following_fork = PJ_FALSE;
 
     /* MUST NOT do multiple SDP offer/answer in a single transaction,
      * EXCEPT if:
@@ -1860,6 +1949,8 @@ static pj_status_t inv_check_sdp_in_incoming_msg( pjsip_inv_session *inv,
 			  "forked 2xx/18x response (err=%d)", status));
 		return status;
 	    }
+
+	    inv->following_fork = PJ_TRUE;
 
 	} else {
 
@@ -2017,7 +2108,7 @@ static pj_status_t process_answer( pjsip_inv_session *inv,
 
 
      /* If SDP negotiator is ready, start negotiation. */
-    if (st_code/100==2 || (st_code/10==18 && st_code!=180)) {
+    if (st_code/100==2 || (st_code/10==18 && st_code!=180 && st_code!=181)) {
 
 	pjmedia_sdp_neg_state neg_state;
 
@@ -2049,8 +2140,8 @@ static pj_status_t process_answer( pjsip_inv_session *inv,
 	}
     }
 
-    /* Include SDP when it's available for 2xx and 18x (but not 180) response.
-     * Subsequent response will include this SDP.
+    /* Include SDP when it's available for 2xx and 18x (but not 180 and 181)
+     * response. Subsequent response will include this SDP.
      *
      * Note note:
      *	- When offer/answer has been completed in reliable 183, we MUST NOT
@@ -3012,6 +3103,7 @@ PJ_DEF(pj_status_t) pjsip_inv_send_msg( pjsip_inv_session *inv,
 	/* Associate our data in outgoing invite transaction */
 	tsx_inv_data = PJ_POOL_ZALLOC_T(inv->pool, struct tsx_inv_data);
 	tsx_inv_data->inv = inv;
+	tsx_inv_data->has_sdp = tx_data_has_sdp(tdata);
 
 	pjsip_dlg_dec_lock(inv->dlg);
 
@@ -3224,12 +3316,21 @@ static void inv_handle_bye_response( pjsip_inv_session *inv,
  * Respond to incoming UPDATE request.
  */
 static void inv_respond_incoming_update(pjsip_inv_session *inv,
-					pjsip_rx_data *rdata)
+					pjsip_event *e)
 {
     pjmedia_sdp_neg_state neg_state;
     pj_status_t status;
     pjsip_tx_data *tdata = NULL;
+    pjsip_rx_data *rdata;
     pjsip_status_code st_code;
+
+    pj_assert(e->type == PJSIP_EVENT_TSX_STATE &&
+	      e->body.tsx_state.type == PJSIP_EVENT_RX_MSG);
+    rdata = e->body.tsx_state.src.rdata;
+
+    /* Check routing URI scheme for secure dialog */
+    if (!inv_check_secure_dlg(inv, e))
+	return;
 
     /* Invoke Session Timers module */
     status = pjsip_timer_process_req(inv, rdata, &st_code);
@@ -3385,21 +3486,27 @@ static pj_bool_t inv_handle_update_response( pjsip_inv_session *inv,
 	tsx->status_code/100 == 2)
     {
 	pjsip_rx_data *rdata = e->body.tsx_state.src.rdata;
-	status = handle_timer_response(inv, rdata, PJ_FALSE);
 
-	if (rdata->msg_info.msg->body) {
-	    /* Only process remote SDP if we have sent local offer */
-	    if (inv->neg && pjmedia_sdp_neg_get_state(inv->neg) == 
-					PJMEDIA_SDP_NEG_STATE_LOCAL_OFFER)
-	    {
-		status = inv_check_sdp_in_incoming_msg(inv, tsx, rdata);
-	    } else {
-		PJ_LOG(5,(THIS_FILE, "Ignored message body in %s as no local "
-				     "offer was sent",
-				     pjsip_rx_data_get_info(rdata)));
+	/* Check routing URI scheme for secure dialog */
+	if (inv_check_secure_dlg(inv, e)) {
+
+	    status = handle_timer_response(inv, rdata, PJ_FALSE);
+
+	    if (rdata->msg_info.msg->body) {
+		/* Only process remote SDP if we have sent local offer */
+		if (inv->neg && pjmedia_sdp_neg_get_state(inv->neg) == 
+					    PJMEDIA_SDP_NEG_STATE_LOCAL_OFFER)
+		{
+		    status = inv_check_sdp_in_incoming_msg(inv, tsx, rdata);
+		} else {
+		    PJ_LOG(5,(THIS_FILE, "Ignored message body in %s as no "
+					 "local offer was sent",
+					 pjsip_rx_data_get_info(rdata)));
+		}
 	    }
 	}
-	handled = PJ_TRUE;
+
+        handled = PJ_TRUE;
     }
 
     /* Process 502/503 error */
@@ -3432,7 +3539,7 @@ static pj_bool_t inv_handle_update_response( pjsip_inv_session *inv,
     if (pjmedia_sdp_neg_get_state(inv->neg) ==
 		PJMEDIA_SDP_NEG_STATE_LOCAL_OFFER &&
 	tsx_inv_data && tsx_inv_data->sdp_done == PJ_FALSE &&
-	!tsx_inv_data->retrying)
+	!tsx_inv_data->retrying && tsx_inv_data->has_sdp)
     {
 	pjmedia_sdp_neg_cancel_offer(inv->neg);
 
@@ -3508,12 +3615,122 @@ static void inv_respond_incoming_prack(pjsip_inv_session *inv,
 	    tsx_inv_data = PJ_POOL_ZALLOC_T(inv->invite_tsx->pool, 
 					    struct tsx_inv_data);
 	    tsx_inv_data->inv = inv;
+	    tsx_inv_data->has_sdp = PJ_TRUE;
 	    inv->invite_tsx->mod_data[mod_inv.mod.id] = tsx_inv_data;
 	}
 	
 	tsx_inv_data->sdp_done = PJ_TRUE;
     }
 }
+
+
+/* Ticket #1735: If this is a secure dialog, make sure that any incoming
+ * initial/subsequent INVITE/UPDATE request or the 2xx response to INVITE/
+ * UPDATE specifies secure Contact and Record-Route headers.
+ */
+static pj_bool_t inv_check_secure_dlg(pjsip_inv_session *inv,
+				      pjsip_event *e)
+{
+    pjsip_transaction *tsx = e->body.tsx_state.tsx;
+    pjsip_dialog *dlg = pjsip_tsx_get_dlg(tsx);
+
+    if (pjsip_cfg()->endpt.disable_secure_dlg_check == PJ_FALSE &&
+	dlg->secure && e->body.tsx_state.type==PJSIP_EVENT_RX_MSG &&
+	((tsx->role==PJSIP_ROLE_UAC && tsx->status_code/100 == 2) ||
+	 (tsx->role==PJSIP_ROLE_UAS && tsx->state == PJSIP_TSX_STATE_TRYING))
+	&&
+	(tsx->method.id==PJSIP_INVITE_METHOD || 
+	 pjsip_method_cmp(&tsx->method, &pjsip_update_method)==0))
+    {
+	const pjsip_msg *msg = e->body.tsx_state.src.rdata->msg_info.msg;
+	pj_status_t status = PJ_SUCCESS;
+	pjsip_contact_hdr *c;
+
+	/* Check Contact header */
+	c = (pjsip_contact_hdr*)
+	    pjsip_msg_find_hdr(msg,PJSIP_H_CONTACT, NULL);
+	if (!(c && c->uri && PJSIP_URI_SCHEME_IS_SIPS(c->uri)))
+	    status = PJSIP_ESESSIONINSECURE;
+
+	/* Check top Record-Route header */
+	if (status == PJ_SUCCESS) {
+	    pjsip_rr_hdr *r = (pjsip_rr_hdr*)
+			      pjsip_msg_find_hdr(msg, PJSIP_H_RECORD_ROUTE,
+						 NULL);
+	    if (r && !PJSIP_URI_SCHEME_IS_SIPS(&r->name_addr)) {
+		/* Not "sips", check if it is "sip" and has param
+		 * "transport=tls".
+		 */
+		if (PJSIP_URI_SCHEME_IS_SIP(&r->name_addr)) {
+		    pjsip_sip_uri *sip_uri = (pjsip_sip_uri*)
+				     pjsip_uri_get_uri(r->name_addr.uri);
+		    if (pj_stricmp2(&sip_uri->transport_param, "tls")!=0)
+			status = PJSIP_ESESSIONINSECURE;
+		} else {
+		    /* Not "sips" nor "sip", treat it as insecure? */
+		    status = PJSIP_ESESSIONINSECURE;
+		}
+	    }
+	}
+
+	if (status == PJSIP_ESESSIONINSECURE) {
+	    /* Found non-SIPS scheme in Contact/Record-Route header */
+
+	    pj_str_t warn_text = pj_str("SIPS Required");
+
+	    if (tsx->role == PJSIP_ROLE_UAC) {
+
+		/* If we are UAC, terminate the session */
+		pjsip_tx_data *bye;
+
+		PJ_LOG(4,(inv->obj_name,
+			  "Secure dialog requires SIPS scheme in Contact and "
+			  "Record-Route headers, ending the session"));
+
+		status = pjsip_inv_end_session(inv, 480, NULL, &bye);
+		if (status == PJ_SUCCESS && bye) {
+		    pjsip_warning_hdr *w;
+		    w = pjsip_warning_hdr_create(bye->pool, 381,
+						 pjsip_endpt_name(dlg->endpt),
+						 &warn_text);
+		    if (w)
+			pjsip_msg_add_hdr(bye->msg, (pjsip_hdr*)w);
+
+		    status = pjsip_inv_send_msg(inv, bye);
+		}
+
+	    } else {
+
+		/* If we are UAS, reject the request */
+		pjsip_rx_data *rdata = e->body.tsx_state.src.rdata;
+		pjsip_tx_data *tdata;
+
+		PJ_LOG(4,(inv->obj_name,
+			  "Secure dialog requires SIPS scheme in Contact and "
+			  "Route headers, rejecting the request"));
+
+		status = pjsip_dlg_create_response(inv->dlg, rdata, 480,
+						   NULL, &tdata);
+		if (status == PJ_SUCCESS) {
+		    pjsip_warning_hdr *w;
+		    w = pjsip_warning_hdr_create(tdata->pool, 381,
+						 pjsip_endpt_name(dlg->endpt),
+						 &warn_text);
+		    if (w)
+			pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)w);
+
+		    pjsip_dlg_send_response(dlg, tsx, tdata);
+		}
+
+	    }
+
+    	    return PJ_FALSE;
+	}
+    }
+
+    return PJ_TRUE;
+}
+
 
 
 /*
@@ -3865,6 +4082,12 @@ static void inv_on_state_calling( pjsip_inv_session *inv, pjsip_event *e)
 		 */
 		pj_assert(0);
 
+		inv_set_state(inv, PJSIP_INV_STATE_CONNECTING, e);
+
+		/* Check routing URI scheme for secure dialog */
+		if (!inv_check_secure_dlg(inv, e))
+		    break;
+
 		/* Process session timer response. */
 		status = handle_timer_response(inv,
 					       e->body.tsx_state.src.rdata,
@@ -3872,8 +4095,6 @@ static void inv_on_state_calling( pjsip_inv_session *inv, pjsip_event *e)
 		if (status != PJ_SUCCESS)
 		    break;
 
-		inv_set_state(inv, PJSIP_INV_STATE_CONNECTING, e);
-    
 		inv_check_sdp_in_incoming_msg(inv, tsx, 
 					      e->body.tsx_state.src.rdata);
 
@@ -3889,6 +4110,14 @@ static void inv_on_state_calling( pjsip_inv_session *inv, pjsip_event *e)
 	     */
 	    if (tsx->status_code/100 == 2) {
 		/* This must be receipt of 2xx response */
+		pj_assert(e->body.tsx_state.type == PJSIP_EVENT_RX_MSG);
+
+		/* Set state to CONNECTING */
+		inv_set_state(inv, PJSIP_INV_STATE_CONNECTING, e);
+
+		/* Check routing URI scheme for secure dialog */
+		if (!inv_check_secure_dlg(inv, e))
+		    break;
 
 		/* Process session timer response. */
 		status = handle_timer_response(inv,
@@ -3897,15 +4126,9 @@ static void inv_on_state_calling( pjsip_inv_session *inv, pjsip_event *e)
 		if (status != PJ_SUCCESS)
 		    break;
 
-		/* Set state to CONNECTING */
-		inv_set_state(inv, PJSIP_INV_STATE_CONNECTING, e);
-
 		inv_check_sdp_in_incoming_msg(inv, tsx, 
 					      e->body.tsx_state.src.rdata);
-
 		/* Send ACK */
-		pj_assert(e->body.tsx_state.type == PJSIP_EVENT_RX_MSG);
-
 		inv_send_ack(inv, e);
 
 	    } else  {
@@ -3942,7 +4165,7 @@ static void inv_on_state_calling( pjsip_inv_session *inv, pjsip_event *e)
 	/*
 	 * Handle a very early UPDATE
 	 */
-	inv_respond_incoming_update(inv, e->body.tsx_state.src.rdata);
+	inv_respond_incoming_update(inv, e);
 
 
     }
@@ -4060,6 +4283,10 @@ static void inv_on_state_early( pjsip_inv_session *inv, pjsip_event *e)
 		if (e->body.tsx_state.type == PJSIP_EVENT_RX_MSG) {
 		    pj_status_t status;
 
+		    /* Check routing URI scheme for secure dialog */
+		    if (!inv_check_secure_dlg(inv, e))
+			break;
+
 		    /* Process session timer response. */
 		    status = handle_timer_response(inv, 
 						   e->body.tsx_state.src.rdata,
@@ -4100,6 +4327,10 @@ static void inv_on_state_early( pjsip_inv_session *inv, pjsip_event *e)
 		if (e->body.tsx_state.type == PJSIP_EVENT_RX_MSG) {
 		    pj_status_t status;
 		    
+		    /* Check routing URI scheme for secure dialog */
+		    if (!inv_check_secure_dlg(inv, e))
+			break;
+
 		    /* Process session timer response. */
 		    status = handle_timer_response(inv, 
 						   e->body.tsx_state.src.rdata,
@@ -4149,7 +4380,7 @@ static void inv_on_state_early( pjsip_inv_session *inv, pjsip_event *e)
 	/*
 	 * Handle incoming UPDATE
 	 */
-	inv_respond_incoming_update(inv, e->body.tsx_state.src.rdata);
+	inv_respond_incoming_update(inv, e);
 
 
     } else if (tsx->role == PJSIP_ROLE_UAC &&
@@ -4357,7 +4588,7 @@ static void inv_on_state_connecting( pjsip_inv_session *inv, pjsip_event *e)
 	/*
 	 * Handle incoming UPDATE
 	 */
-	inv_respond_incoming_update(inv, e->body.tsx_state.src.rdata);
+	inv_respond_incoming_update(inv, e);
 
 
     } else if (tsx->role == PJSIP_ROLE_UAC &&
@@ -4487,6 +4718,10 @@ static void inv_on_state_confirmed( pjsip_inv_session *inv, pjsip_event *e)
 		return;
 	    }
 
+	    /* Check routing URI scheme for secure dialog */
+	    if (!inv_check_secure_dlg(inv, e))
+		return;
+
 	    /* Save the invite transaction. */
 	    inv->invite_tsx = tsx;
 
@@ -4550,36 +4785,53 @@ static void inv_on_state_confirmed( pjsip_inv_session *inv, pjsip_event *e)
             }
 
 	    if (status != PJ_SUCCESS) {
+		pj_bool_t reject_message = PJ_TRUE;
 
-		/* Not Acceptable */
-		const pjsip_hdr *accept;
-
-		/* The incoming SDP is unacceptable. If the SDP negotiator
-		 * state has just been changed, i.e: DONE -> REMOTE_OFFER,
-		 * revert it back.
-		 */
-		if (pjmedia_sdp_neg_get_state(inv->neg) ==
-		    PJMEDIA_SDP_NEG_STATE_REMOTE_OFFER)
+		if (status == PJMEDIA_SDP_EINSDP)
 		{
-		    pjmedia_sdp_neg_cancel_offer(inv->neg);
+		    sdp_info = pjsip_rdata_get_sdp_info(rdata);
+		    if (sdp_info->body.ptr == NULL && 
+			PJSIP_INV_ACCEPT_UNKNOWN_BODY) 
+		    {
+			/* Message body is not "application/sdp" */
+			reject_message = PJ_FALSE;
+		    }		    
 		}
 
-		status = pjsip_dlg_create_response(inv->dlg, rdata, 
-						   488, NULL, &tdata);
-		if (status != PJ_SUCCESS)
+		if (reject_message) {
+		    /* Not Acceptable */
+		    const pjsip_hdr *accept;
+
+		    /* The incoming SDP is unacceptable. If the SDP negotiator
+		     * state has just been changed, i.e: DONE -> REMOTE_OFFER,
+		     * revert it back.
+		     */
+		    if (pjmedia_sdp_neg_get_state(inv->neg) ==
+			PJMEDIA_SDP_NEG_STATE_REMOTE_OFFER)
+		    {
+			pjmedia_sdp_neg_cancel_offer(inv->neg);
+		    }
+
+		    status = pjsip_dlg_create_response(inv->dlg, rdata, 
+					 (status == PJMEDIA_SDP_EINSDP)?415:488,
+					  NULL, &tdata);
+
+		    if (status != PJ_SUCCESS)
+			return;
+
+
+		    accept = pjsip_endpt_get_capability(dlg->endpt, 
+							PJSIP_H_ACCEPT,
+							NULL);
+		    if (accept) {
+			pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)
+					  pjsip_hdr_clone(tdata->pool, accept));
+		    }
+
+		    status = pjsip_dlg_send_response(dlg, tsx, tdata);
+
 		    return;
-
-
-		accept = pjsip_endpt_get_capability(dlg->endpt, PJSIP_H_ACCEPT,
-						    NULL);
-		if (accept) {
-		    pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)
-				      pjsip_hdr_clone(tdata->pool, accept));
 		}
-
-		status = pjsip_dlg_send_response(dlg, tsx, tdata);
-
-		return;
 	    }
 
 	    /* Create 2xx ANSWER */
@@ -4729,6 +4981,10 @@ static void inv_on_state_confirmed( pjsip_inv_session *inv, pjsip_event *e)
 
 	    /* Re-INVITE was accepted. */
 
+	    /* Check routing URI scheme for secure dialog */
+	    if (!inv_check_secure_dlg(inv, e))
+		return;
+
 	    /* Process session timer response. */
 	    status = handle_timer_response(inv, 
 					   e->body.tsx_state.src.rdata,
@@ -4787,7 +5043,7 @@ static void inv_on_state_confirmed( pjsip_inv_session *inv, pjsip_event *e)
 	/*
 	 * Handle incoming UPDATE
 	 */
-	inv_respond_incoming_update(inv, e->body.tsx_state.src.rdata);
+	inv_respond_incoming_update(inv, e);
 
     } else if (tsx->role == PJSIP_ROLE_UAC &&
 	       (tsx->state == PJSIP_TSX_STATE_COMPLETED ||

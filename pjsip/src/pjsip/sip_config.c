@@ -1,4 +1,4 @@
-/* $Id$ */
+/* $Id: sip_config.c 4899 2014-08-21 05:58:36Z nanang $ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
@@ -33,7 +33,8 @@ pjsip_cfg_t pjsip_sip_cfg_var =
        PJSIP_DONT_SWITCH_TO_TLS,
        PJSIP_FOLLOW_EARLY_MEDIA_FORK,
        PJSIP_REQ_HAS_VIA_ALIAS,
-       PJSIP_RESOLVE_HOSTNAME_TO_GET_INTERFACE
+       PJSIP_RESOLVE_HOSTNAME_TO_GET_INTERFACE,
+       0
     },
 
     /* Transaction settings */

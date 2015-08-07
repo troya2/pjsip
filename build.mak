@@ -150,14 +150,20 @@ AC_PJMEDIA_VIDEO_HAS_QT =
 QT_CFLAGS = 
 
 # iOS
-IOS_CFLAGS = -DPJMEDIA_VIDEO_DEV_HAS_IOS=1
+IOS_CFLAGS = -DPJMEDIA_VIDEO_DEV_HAS_IOS=1 -DPJMEDIA_VIDEO_DEV_HAS_IOS_OPENGL=1
+
+# Android
+ANDROID_CFLAGS = 
+
+# libyuv
+LIBYUV_CFLAGS =  
+LIBYUV_LDFLAGS =  
 
 # PJMEDIA features exclusion
 PJ_VIDEO_CFLAGS += $(SDL_CFLAGS) $(FFMPEG_CFLAGS) $(V4L2_CFLAGS) $(QT_CFLAGS) \
-		   $(OPENH264_CFLAGS) $(IOS_CFLAGS)
+		   $(OPENH264_CFLAGS) $(IOS_CFLAGS) $(LIBYUV_CFLAGS)
 PJ_VIDEO_LDFLAGS += $(SDL_LDFLAGS) $(FFMPEG_LDFLAGS) $(V4L2_LDFLAGS) \
-                   $(OPENH264_LDFLAGS)
-
+                   $(OPENH264_LDFLAGS) $(LIBYUV_LDFLAGS)
 
 # CFLAGS, LDFLAGS, and LIBS to be used by applications
 export APP_CC := /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/../../../Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
@@ -257,7 +263,7 @@ export APP_LDLIBS := $(PJSUA_LIB_LDLIB) \
 	$(APP_THIRD_PARTY_LIBS)\
 	$(APP_THIRD_PARTY_EXT)\
 	$(PJLIB_LDLIB) \
-	-lm -lpthread  -framework CoreAudio -framework CoreFoundation -framework AudioToolbox -framework CFNetwork -framework UIKit -framework UIKit -framework AVFoundation -framework CoreGraphics -framework QuartzCore -framework CoreVideo -framework CoreMedia -lcrypto -lssl
+	-lm -lpthread  -framework CoreAudio -framework CoreFoundation -framework AudioToolbox -framework CFNetwork -framework UIKit -framework UIKit -framework OpenGLES -framework AVFoundation -framework CoreGraphics -framework QuartzCore -framework CoreVideo -framework CoreMedia
 export APP_LDXXLIBS := $(PJSUA2_LIB_LDLIB) \
 	-lstdc++ \
 	$(APP_LDLIBS)
